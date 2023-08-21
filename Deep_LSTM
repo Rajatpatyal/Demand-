@@ -1,0 +1,63 @@
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Input, Embedding, Concatenate, Flatten
+import matplotlib.pyplot as plt
+
+# Load your data
+# Assuming you have a CSV file with columns: 'date', 'demand', 'holidays', 'festivals', 'weekly_offs'
+data = pd.read_csv('demand_data_with_features.csv')
+
+# Normalize the demand values
+scaler = MinMaxScaler()
+scaled_demand = scaler.fit_transform(data['demand'].values.reshape(-1, 1))
+
+# Prepare features
+features = data[['holidays', 'festivals', 'weekly_offs']].values
+
+# Create sequences for input and target variables
+sequence_length = 12  # Number of months to consider for each input sequence
+X, y, feat = [], [], []
+for i in range(len(scaled_demand) - sequence_length):
+    X.append(scaled_demand[i:i+sequence_length])
+    y.append(scaled_demand[i+sequence_length])
+    feat.append(features[i+sequence_length])
+X = np.array(X)
+y = np.array(y)
+feat = np.array(feat)
+
+# Split the data into training and testing sets
+split_ratio = 0.8
+split_idx = int(split_ratio * len(X))
+X_train, X_test = X[:split_idx], X[split_idx:]
+y_train, y_test = y[:split_idx], y[split_idx:]
+feat_train, feat_test = feat[:split_idx], feat[split_idx:]
+
+# Build the LSTM model with additional features
+input_demand = Input(shape=(X_train.shape[1], X_train.shape[2]))
+input_feat = Input(shape=(feat_train.shape[1],))
+
+lstm_out = LSTM(units=50, activation='relu')(input_demand)
+concat_layer = Concatenate()([lstm_out, input_feat])
+output_layer = Dense(units=1)(concat_layer)
+
+model = Model(inputs=[input_demand, input_feat], outputs=output_layer)
+model.compile(optimizer='adam', loss='mean_squared_error')
+
+# Train the model
+model.fit([X_train, feat_train], y_train, epochs=50, batch_size=32)
+
+# Make predictions
+predicted_scaled_demand = model.predict([X_test, feat_test])
+predicted_demand = scaler.inverse_transform(predicted_scaled_demand)
+
+# Plot the results
+plt.figure(figsize=(12, 6))
+plt.plot(data['date'][split_idx+sequence_length:], data['demand'][split_idx+sequence_length:], label='Actual Demand')
+plt.plot(data['date'][split_idx+sequence_length:], predicted_demand, label='Predicted Demand')
+plt.xlabel('Date')
+plt.ylabel('Demand')
+plt.title('Demand Forecasting with Features')
+plt.legend()
+plt.show()
